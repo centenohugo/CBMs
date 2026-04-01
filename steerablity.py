@@ -29,55 +29,63 @@ CONCEPT_NAMES = [
 
 def evaluate_steerability(model, dataloader, device, num_concepts=10):
     """
-    Evaluates steerability by flipping one concept at a time and 
+    Evaluates steerability by flipping one concept at a time and
     measuring the effect on the final target prediction.
     """
     model.eval()
     intervention_effects = {i: {'prob_change': [], 'flips': 0, 'total': 0} for i in range(num_concepts)}
-    
+
     with torch.no_grad():
         for x, c, y in tqdm(dataloader, desc="Intervening"):
             x = x.to(device)
-            
-            # 1. Base prediction
-            c_logits_base, y_logits_base = model(x)
+
+            # 1. Get concept logits from the full forward pass, then binarize.
+            # y_logits from model(x) uses soft concepts internally and must NOT be
+            # used as the baseline — doing so would make the comparison invalid
+            # (soft baseline vs. hard intervened), polluting the measured delta.
+            c_logits_base, _ = model(x)
+            c_soft_base = torch.sigmoid(c_logits_base)
+
+            # Binarize the base concepts to prevent soft-probability leakage
+            c_binary_base = (c_soft_base > 0.5).float()
+
+            # 2. Recompute the baseline label prediction using the hard binary
+            # concepts, mirroring the exact same path used during intervention.
+            if hasattr(model, 'side_channel'):
+                features = model.concept_predictor.backbone(x).view(x.size(0), -1)
+                s_x = model.side_channel(features)
+                y_logits_base = model.c_to_y(c_binary_base) + s_x
+            else:
+                y_logits_base = model.c_to_y(c_binary_base)
+
             y_prob_base = torch.sigmoid(y_logits_base)
             y_pred_base = (y_prob_base > 0.5).float()
-            
-            c_soft_base = torch.sigmoid(c_logits_base)
-            
-            # Binarize the base concepts to prevent soft-probability leakage during intervention
-            c_binary_base = (c_soft_base > 0.5).float()
-            
-            # 2. Intervene on each concept separately
+
+            # 3. Intervene on each concept separately
             for i in range(num_concepts):
                 # Clone the hard binary concepts
                 c_intervened = c_binary_base.clone()
-                
+
                 # Flip the concept value strictly: 0 -> 1 or 1 -> 0
                 c_intervened[:, i] = 1.0 - c_intervened[:, i]
-                
-                # 3. Forward pass through c -> y (and side channel if Hybrid)
+
+                # 4. Forward pass through c -> y (and side channel if Hybrid)
                 if hasattr(model, 'side_channel'):
-                    # Extract features using Hugo's backbone path
-                    features = model.concept_predictor.backbone(x).view(x.size(0), -1)
-                    
                     # Dropout is off in eval mode, so side channel is deterministic
-                    s_x = model.side_channel(features)
                     f_c = model.c_to_y(c_intervened)
                     y_logits_new = f_c + s_x
                 else:
                     y_logits_new = model.c_to_y(c_intervened)
-                    
+
                 y_prob_new = torch.sigmoid(y_logits_new)
                 y_pred_new = (y_prob_new > 0.5).float()
-                
-                # 4. Record metrics
+
+                # 5. Record metrics
                 prob_diff = torch.abs(y_prob_new - y_prob_base).cpu().numpy()
                 flips = (y_pred_new != y_pred_base).cpu().numpy()
-                
+
                 intervention_effects[i]['prob_change'].extend(prob_diff.flatten())
-                intervention_effects[i]['flips'] += flips.sum()
+                intervention_effects[i]['flips'] += int(flips.sum())
                 intervention_effects[i]['total'] += len(flips)
 
     # Compile ranking with proper concept names
