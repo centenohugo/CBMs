@@ -25,11 +25,10 @@ class HybridCBM(nn.Module):
 
     def __init__(self, cbm, dropout_p=0.0):
         super().__init__()
-        
-        self.backbone = self.cbm.backbone
-        
+
         # Main path f(c) --> concept-based classifier
         self.cbm = cbm
+        self.backbone = self.cbm.backbone
 
         # Side channel s(x)
         self.side_dropout = nn.Dropout(p=dropout_p)
