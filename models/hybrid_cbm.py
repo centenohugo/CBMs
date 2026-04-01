@@ -23,27 +23,30 @@ import torch.optim as optim
 class HybridCBM(nn.Module):
     """y = f(c) + s(x) mapping with configurable side-channel dropout."""
 
-    def __init__(self, concept_predictor, backbone, num_concepts=10, dropout_p=0.0):
+    def __init__(self, cbm, dropout_p=0.0):
         super().__init__()
-        self.concept_predictor = concept_predictor
-        self.c_to_y = nn.Linear(num_concepts, 1)
+        
+        self.backbone = self.cbm.backbone
+        
+        # Main path f(c) --> concept-based classifier
+        self.cbm = cbm
 
         # Side channel s(x)
         self.side_dropout = nn.Dropout(p=dropout_p)
-        self.backbone = backbone
-        self.fc = nn.Linear(512, 1)
+        self.side_head = nn.Linear(self.cbm.concept_head.in_features, 1)
 
     def forward(self, x):
+        # Compute shared backbone features once for both paths.
+        features = self.backbone(x).view(x.size(0), -1)
+
         # 1. f(c) --> concept-based classifier
-        features = self.concept_predictor.backbone(x).view(x.size(0), -1)
-        c_logits = self.concept_predictor.fc_concepts(features)
-        c_soft = torch.sigmoid(c_logits)
-        f_c = self.c_to_y(c_soft)
+        c_logits = self.cbm.concept_head(features)
+        c_probs = torch.sigmoid(c_logits)
+        f_c = self.cbm.label_head(c_probs)
 
         # 2. s(x) --> side-channel head operating on backbone features.
-        features = self.backbone(x).view(x.size(0), -1)
         features_dropped = self.side_dropout(features)
-        s_x = self.fc(features_dropped)
+        s_x = self.side_head(features_dropped)
 
         # 3. Combine (summing the logits from both paths)
         y_logits = f_c + s_x
@@ -53,9 +56,9 @@ class HybridCBM(nn.Module):
 
 class HybridCBM_extended(HybridCBM):
 
-    def __init__(self, concept_predictor, backbone, epochs=100, lr=0.001, lambda_c=1.0):
+    def __init__(self, cbm, epochs=100, lr=0.001, lambda_c=1.0):
 
-        super().__init__(concept_predictor, backbone, num_concepts=10, dropout_p=0.0)  # To initialize BaselineClassifier
+        super().__init__(cbm, dropout_p=0.0)
 
         self.lr = lr  # Learning Rate
 
