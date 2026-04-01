@@ -56,9 +56,9 @@ class HybridCBM(nn.Module):
 
 class HybridCBM_extended(HybridCBM):
 
-    def __init__(self, cbm, epochs=100, lr=0.001, lambda_c=1.0):
+    def __init__(self, cbm, dropout_p=0.0, epochs=100, lr=0.001, lambda_c=1.0):
 
-        super().__init__(cbm, dropout_p=0.0)
+        super().__init__(cbm, dropout_p)
 
         self.lr = lr  # Learning Rate
 
