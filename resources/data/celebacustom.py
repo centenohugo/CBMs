@@ -7,11 +7,10 @@ from torch.utils.data import Dataset
 
 class CelebACustom(Dataset):
     """
-    CelebA dataset que lee directamente del disco (sin torchvision download).
-    Filtra conceptos y target por nombre.
+    Readind direcly from the disk
 
-    Estructura esperada en root/:
-        img_align_celeba/    <- imágenes
+    Expected structure somewhere in root/:
+        img_align_celeba/ 
         list_attr_celeba.txt
         list_eval_partition.txt
     """
@@ -23,7 +22,7 @@ class CelebACustom(Dataset):
         partition_path = os.path.join(root, 'list_eval_partition.txt')
         attr_path = os.path.join(root, 'list_attr_celeba.txt')
 
-        # Cargar particiones (0=train, 1=valid, 2=test)
+        # Load partitions (0=train, 1=valid, 2=test)
         split_map = {'train': 0, 'valid': 1, 'test': 2}
         split_df = pd.read_csv(
             partition_path, sep=r'\s+', header=None,
@@ -31,18 +30,18 @@ class CelebACustom(Dataset):
         )
         self.img_names = split_df[split_df['split'] == split_map[split]]['img'].values
 
-        # Cargar atributos: saltar primera línea (count), usar nombre imagen como índice
+        # Load attributes: skip first line (count), use image name as index
         attr_df = pd.read_csv(
             attr_path, sep=r'\s+', skiprows=1,
             index_col=0, engine='python'
         )
-        # CelebA usa -1/+1, convertir a 0/1
+        # CelebA uses -1/+1, convert to 0/1
         attr_df = (attr_df + 1) // 2
 
-        # Filtrar solo las filas del split actual
+        # Fit the attribute DataFrame to the current split
         attr_df = attr_df.loc[self.img_names]
 
-        # Pre-cargar conceptos y target como tensores
+        # Prepare tensors for concepts and targets
         self.concepts = torch.tensor(attr_df[concept_names].values, dtype=torch.float32)
         self.targets = torch.tensor(attr_df[target_name].values, dtype=torch.float32)
 
